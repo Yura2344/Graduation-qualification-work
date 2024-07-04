@@ -13,6 +13,8 @@ export default function CommentForm({ edit = false, postId, setEdit, commentData
   const [content, setContent] = useState("");
   const [commentMedia, setCommentMedia] = useState([]);
 
+  const [contentErrMsg, setContentErrMsg] = useState("");
+
   function removeMedia(index) {
     setCommentMedia((prev) => prev.filter((v, i) => i !== index));
   }
@@ -66,6 +68,13 @@ export default function CommentForm({ edit = false, postId, setEdit, commentData
       setContent("");
       setCommentMedia([]);
       await updateComments();
+    }).catch((err) => {
+      if(err.response.status === 400){
+        for(const error of err.response.data){
+          if(error.path === "content") setContentErrMsg(error.msg);
+        }
+      }
+      console.log(err);
     });
   }
 
@@ -146,7 +155,9 @@ export default function CommentForm({ edit = false, postId, setEdit, commentData
         <Box sx={{ display: "flex", alignItems: "flex-start" }}>
           <TextField
             value={content}
-            onChange={(e) => setContent(e.target.value)}
+            error={contentErrMsg !== ""}
+            helperText={contentErrMsg}
+            onChange={(e) => {setContent(e.target.value); setContentErrMsg("")}}
             label="Write comment"
             multiline
             maxRows={10}

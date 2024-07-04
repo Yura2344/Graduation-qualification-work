@@ -1,13 +1,15 @@
-import Message from "../models/Message.js";
-import { chatSocketFunctions } from "../controllers/ChatController.js";
+import { Server } from "socket.io";
 
-export default (io) => {
-    io.on("connection", (socket) => {
-        
-        chatSocketFunctions(io, socket);
+import {server} from "./server.js";
+import sessionMiddleware from "./sessionMiddleware.js";
 
-        socket.on("disconnect", () => {
-            console.log("socket disconnected")
-        });
-    });
-}
+const io = new Server(server, {
+    cors: {
+        origin: true,
+        credentials: true
+    },
+    maxHttpBufferSize: 1024 * 1024 * 1024 * 2
+});
+io.engine.use(sessionMiddleware);
+
+export default io;

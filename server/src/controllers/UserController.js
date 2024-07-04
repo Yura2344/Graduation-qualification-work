@@ -6,15 +6,16 @@ import fs from "node:fs"
 import User from "../models/User.js";
 import { avatarsPath, serverPath } from "../utils/consts.js";
 import slash from "slash";
-import { ReactionType } from "../utils/customDataTypes.js";
+import { RolesType } from "../utils/customDataTypes.js";
 import { avatarURLCol, countReactions } from "../utils/functions.js";
 import Comment from "../models/Comment.js";
-import { Op, where } from "sequelize";
+import { Op } from "sequelize";
 import Post from "../models/Post.js";
 import PostMedia from "../models/PostMedia.js";
 import sequelize from "../utils/db.js";
 import AdvertisementPost from "../models/AdvertisementPost.js";
 import sharp from "sharp";
+import MessageMedia from "../models/MessageMedia.js";
 
 export async function register(req, res) {
     if (req.session.userId) {
@@ -129,7 +130,7 @@ export async function getUserByName(req, res) {
             username: user.username,
             avatarURL: user.avatarPath && `${req.protocol}://${req.headers.host}/${user.avatarPath}` 
         };
-        if(currentUser.userRole === "admin"){
+        if(currentUser.role === "admin"){
             returnUser.role = user.role;
         }
         return res.status(200).json(returnUser);
@@ -208,6 +209,10 @@ export async function getUserChats(req, res) {
     const user = await User.findByPk(req.session.userId);
 
     const chats = await user.getChats({
+        attributes: {
+            exclude: ['avatarPath'],
+            include: [avatarURLCol("Chat", `${req.protocol}://${req.headers.host}/`)]
+        },
         order: [['id', 'DESC']],
         limit: limit === "" ? null : limit,
         offset: offset || 0,
@@ -222,6 +227,25 @@ export async function getUserChats(req, res) {
         joinTableAttributes: []
     });
     if (chats) {
+        for(let chat of chats){
+            const lastMessage = (await chat.getMessages({
+                limit: 1,
+                order: [["createdAt", "DESC"]],
+                include: [
+                    {
+                        model: MessageMedia,
+                        as: "medias",
+                        attributes: ['id', [sequelize.fn('CONCAT', `${req.protocol}://${req.headers.host}/`, sequelize.col('mediaPath')), 'mediaURL']]
+                    },
+                    {
+                        model: User,
+                        as: "sender",
+                        attributes: ['id', 'username', avatarURLCol("sender", `${req.protocol}://${req.headers.host}/`)]
+                    }
+                ]
+            }))[0];
+            chat.setDataValue("lastMessage", lastMessage);
+        }
         return res.status(200).json(chats);
     } else {
         return res.status(204).send();
@@ -469,13 +493,13 @@ export async function changeUserPassword(req, res) {
 export async function changeUserRole(req, res){
 
     const currentUser = await User.findByPk(req.session.userId);
-    if(currentUser.userRole !== "admin"){
+    if(currentUser.role !== "admin"){
         return res.status(403).send("You don't have permission to change user role");
     }
 
     const {role} = req.body;
     const {username} = req.params;
-    if(!ReactionType.values.includes(role)){
+    if(!RolesType.values.includes(role)){
         return res.status(400).send("Invalid role");
     }
 
@@ -626,7 +650,7 @@ export async function deleteUser(req, res) {
             } else {
                 return res.status(400).send("Wrong password");
             }
-        } else if (currentUser.userRole === "admin") {
+        } else if (currentUser.role === "admin") {
             const admin = await User.findOne({
                 where: {
                     id: req.session.userId

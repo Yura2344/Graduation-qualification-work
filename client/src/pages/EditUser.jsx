@@ -124,6 +124,16 @@ export default function EditUser() {
     });
   }
 
+  function changeRole(){
+    let params = new URLSearchParams();
+    params.append("role", role);
+    axiosInstance.put(`/users/${username}/role`, params).then((res) => {
+      enqueueSnackbar("Successfully changed user role");
+    }).catch((err) => {
+      console.log(err);
+    });
+  }
+
   useEffect(() => {
     if (userLoading) return;
     if (!user || (user.username !== username && user.role !== "admin")) {
@@ -188,13 +198,13 @@ export default function EditUser() {
           {
             (isAdmin && !isSameUser) &&
             <Box sx={{ display: "flex", flexDirection: "column", rowGap: 1 }}>
-              <TextField value={role} select label="User role" sx={{
+              <TextField value={role} onChange={(e) => setRole(e.target.value)} select label="User role" sx={{
                 width: "100px"
               }}>
                 <MenuItem value="user">User</MenuItem>
                 <MenuItem value="admin">Admin</MenuItem>
               </TextField>
-              <Button variant="outlined" >Change role</Button>
+              <Button variant="outlined" onClick={changeRole}>Change role</Button>
             </Box>
           }
 

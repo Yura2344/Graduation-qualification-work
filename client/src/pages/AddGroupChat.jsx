@@ -3,6 +3,7 @@ import { Button, Card, CardActions, CardContent, CardHeader, TextField } from "@
 import { useNavigate } from "react-router";
 
 import { axiosInstance } from "../axios";
+import { socket } from "../socket";
 
 export default function AddGroupChat(){
   const navigate = useNavigate();
@@ -15,6 +16,7 @@ export default function AddGroupChat(){
     let params = new URLSearchParams();
     params.append("name", chatName);
     axiosInstance.post("/chats/group", params).then((res) => {
+      socket.emit("connect_to_chat", res.data.chatId);
       navigate(`/chats/${res.data.chatId}`);
     }).catch((err) => {
       if(err.response.status === 400){

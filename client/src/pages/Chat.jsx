@@ -151,7 +151,8 @@ export default function Chat() {
   }, [chatId, user]);
 
   useEffect(() => {
-    chatRef.current.scroll({ top: chatRef.current.scrollHeight, behavior: "smooth" });
+    if(messages.length > 0)
+      chatRef.current.scroll({ top: chatRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
   function getMessage(message) {
@@ -198,6 +199,17 @@ export default function Chat() {
       navigate("/chats");
     }
 
+    function onDeletedChat(){
+      navigate("/chats");
+    }
+
+    function onRemovedMember(user){
+      setMembers((prev) => {
+        prev.splice(prev.findIndex((m) => m.id === user.id), 1);
+        return [...prev];
+      })
+    }
+
     socket.on('sent_message', getMessage);
     socket.on('update_reactions', updateReactions);
     socket.on('update_message', updateMessage);
@@ -205,6 +217,8 @@ export default function Chat() {
     socket.on('added_member', updateMembers);
     socket.on('empty_message', emptyMessage);
     socket.on("left_chat", onLeftChat);
+    socket.on("deleted_chat", onDeletedChat);
+    socket.on("removed_member", onRemovedMember);
   
     return () => {
       socket.off('sent_message', getMessage);
@@ -214,6 +228,9 @@ export default function Chat() {
       socket.off('added_member', updateMembers);
       socket.off('empty_message', emptyMessage);
       socket.off("left_chat", onLeftChat);
+      socket.off("deleted_chat", onDeletedChat);
+      socket.off("removed_member", onRemovedMember);
+
     }
   }, [chatId, navigate, userLoading]);
 
@@ -234,15 +251,11 @@ export default function Chat() {
   }, [chatId]);
 
   useEffect(() => {
-    console.log(members);
-    console.log(user);
     if (user && chat && !members.some((m) => m.id === user.id)) {
-      console.log("connect not member");
       socket.emit("connect_to_chat", chatId);
     }
     return () => {
       if (user && chat && !members.some((m) => m.id === user.id)) {
-        console.log("disconnect not member", user.id);
         socket.emit("disconnect_from_chat", chatId);
       }
     }
@@ -257,15 +270,15 @@ export default function Chat() {
       <Menu open={Boolean(menuAnchorElem)} anchorEl={menuAnchorElem} onClose={() => setMenuAnchorElem(null)}>
         {
           chat?.chatType === "group" && [
-            <MenuItem key="members" onClick={() => setIsMembersDialogOpen(true)}>Members</MenuItem>,
-            chat?.creatorId === user.id && <MenuItem key="add-member" onClick={() => setIsAddMemberDialogOpen(true)}>Add member</MenuItem>,
-            chat?.creatorId === user.id && <MenuItem key="edit-chat" onClick={() => setIsEditChatDialogOpen(true)}>Edit chat</MenuItem>,
-            (chat?.creatorId !== user.id && members.some((m) => m.id === user.id)) && <MenuItem key="leave-chat" onClick={() => setIsLeaveChatDialogOpen(true)}>Leave chat</MenuItem>,
-            chat?.creatorId === user.id && <MenuItem key="delete-chat" onClick={() => setIsDeleteChatDialogOpen(true)}>Delete chat</MenuItem>
+            <MenuItem key="members" onClick={() => {setIsMembersDialogOpen(true); setMenuAnchorElem(null);}}>Members</MenuItem>,
+            chat?.creatorId === user.id && <MenuItem key="add-member" onClick={() => {setIsAddMemberDialogOpen(true); setMenuAnchorElem(null);}}>Add member</MenuItem>,
+            chat?.creatorId === user.id && <MenuItem key="edit-chat" onClick={() => {setIsEditChatDialogOpen(true); setMenuAnchorElem(null);} }>Edit chat</MenuItem>,
+            (chat?.creatorId !== user.id && members.some((m) => m.id === user.id)) && <MenuItem key="leave-chat" onClick={() => {setIsLeaveChatDialogOpen(true); setMenuAnchorElem(null);}}>Leave chat</MenuItem>,
+            chat?.creatorId === user.id && <MenuItem key="delete-chat" onClick={() => {setIsDeleteChatDialogOpen(true); setMenuAnchorElem(null);}}>Delete chat</MenuItem>
           ]
         }
       </Menu>
-      <ChatMembersDialog open={isMembersDialogOpen} setIsOpen={setIsMembersDialogOpen} members={members}/>
+      <ChatMembersDialog open={isMembersDialogOpen} setIsOpen={setIsMembersDialogOpen} chatId={chatId} members={members}/>
       <AddMemberDialog open={isAddMemberDialogOpen} setIsOpen={setIsAddMemberDialogOpen} chatId={chatId}/>
       <LeaveChatDialog open={isLeaveChatDialogOpen} setIsOpen={setIsLeaveChatDialogOpen} chatId={chatId}/>
       <DeleteChatDialog open={isDeleteChatDialogOpen} setIsOpen={setIsDeleteChatDialogOpen} chatId={chatId}/>

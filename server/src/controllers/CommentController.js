@@ -56,6 +56,8 @@ export async function createComment(req, res) {
 export async function editComment(req, res) {
     const { postId, commentId } = req.params;
 
+    const {content} = req.body;
+
     const post = await Post.findByPk(postId);
     if (post) {
         const comment = (await post.getComments({
@@ -109,7 +111,6 @@ export async function editComment(req, res) {
                         createFile(req.files.media[i], commentPath, commentId, `comment_media_${i}`);
                     }
                 } else if (req.files.media.length >= medias.length) {
-                    console.log(req.files.media.length, medias.length);
                     let i = 0;
                     for (; i < medias.length; ++i) {
                         const ext = path.extname(req.files.media[i].name);
@@ -134,7 +135,11 @@ export async function editComment(req, res) {
                 }
 
             }
-            await comment.update({ content: req.body.content });
+            comment.changed("updatedAt", true);
+            if(content && content !== ""){
+                comment.set("content", content);
+            }
+            await comment.save();
             return res.status(200).send("Successfully edited comment");
         } else {
             return res.status(404).send("No comment with such id");

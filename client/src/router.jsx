@@ -27,8 +27,11 @@ export default createBrowserRouter([
             },
             {
                 path: "posts/:id",
-                element: <PostWrapper/>,
                 children: [
+                    {
+                        index: true,
+                        element: <PostWrapper/>,
+                    },
                     {
                         path: "edit",
                         element: <PostWrapper edit={true}/>

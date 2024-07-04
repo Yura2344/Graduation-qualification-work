@@ -8,9 +8,9 @@ export default function Sidebar() {
   const { user, userLoading } = useUserContext();
   return (
     <Drawer open={true} variant="persistent" anchor="left" sx={{
-      width: 240,
+      width: "240px",
       flexShrink: 0,
-      [`& .MuiDrawer-paper`]: { width: 240, boxSizing: 'border-box' },
+      [`& .MuiDrawer-paper`]: { width: "240px", boxSizing: 'border-box' },
     }}>
       <List>
         <ListItem key="main-page">

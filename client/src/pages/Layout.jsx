@@ -16,11 +16,11 @@ export default function Layout() {
 
   const updateUser = useCallback(async () => {
     await axiosInstance.get("/users/me").then((res) => {
+      console.log(res);
       if (res.data instanceof Object) {
         setUser(res.data);
         axiosInstance.get("/users/me/chats").then((res) => {
           for(const chat of res.data){
-            // console.log(chat.id);
             socket.emit("connect_to_chat", chat.id);
           }
         }).catch((err) => {
@@ -36,9 +36,12 @@ export default function Layout() {
         navigate("/login");
       }
     });
+
+
   }, [navigate]);
 
   useEffect(() => {
+    console.log(user);
     if (!localStorage.getItem("username")) {
       setUserLoading(false);
       return;

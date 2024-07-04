@@ -12,6 +12,7 @@ import { avatarURLCol, countReactions } from "../utils/functions.js";
 import { Op } from "sequelize";
 import { validationResult } from "express-validator";
 import sharp from "sharp";
+import io from "../utils/socket.js"
 
 export async function createPersonalChat(req, res) {
     const { username } = req.body;
@@ -40,6 +41,8 @@ export async function createPersonalChat(req, res) {
             }
         });
         await chat.addMembers([currentUser, user]);
+
+        io.to(`user_${user.id}`).emit("created_chat");
         return res.status(200).json({ message: "Successfully created chat", chatId: chat.id });
     } else {
         return res.status(500).send("Error while creating chat");
@@ -49,7 +52,7 @@ export async function createPersonalChat(req, res) {
 export async function createGroupChat(req, res) {
     const result = validationResult(req);
     if (!result.isEmpty()) {
-        return res.status(400).json( result.array() );
+        return res.status(400).json(result.array());
     }
     const { name } = req.body;
 
@@ -71,10 +74,46 @@ export async function createGroupChat(req, res) {
     }
 }
 
+export async function getPersonalChatByUsername(req, res) {
+    const result = validationResult(req);
+    if (!result.isEmpty()) {
+        return res.status(400).json(result.array());
+    }
+
+    const { username } = req.params;
+    const chat = await Chat.findOne({
+        where: {
+            chatType: "personal"
+        },
+        include: [
+            {
+                model: User,
+                as: "members",
+                attributes: ['id', 'username', avatarURLCol("members", `${req.protocol}://${req.headers.host}/`)],
+                where: {
+                    username: {
+                        [Op.in]: [username, req.session.username]
+                    }
+                },
+                through: {
+                    attributes: []
+                },
+                required: true
+            }
+        ]
+    });
+
+    if(chat && chat.members.length === 2){
+        return res.status(200).json(chat);
+    }else{
+        return res.status(404).send("No personal chat with this user");
+    }
+}
+
 export async function getChat(req, res) {
     const result = validationResult(req);
     if (!result.isEmpty()) {
-        return res.status(400).json( result.array() );
+        return res.status(400).json(result.array());
     }
 
     const { chatId } = req.params;
@@ -101,6 +140,23 @@ export async function getChat(req, res) {
                 return res.status(403).send("This is personal chat and you are not its member");
             }
         }
+        const lastMessage = (await chat.getMessages({
+            limit: 1,
+            order: [["createdAt", "DESC"]],
+            include: [
+                {
+                    model: MessageMedia,
+                    as: "medias",
+                    attributes: ['id', [sequelize.fn('CONCAT', `${req.protocol}://${req.headers.host}/`, sequelize.col('mediaPath')), 'mediaURL']]
+                },
+                {
+                    model: User,
+                    as: "sender",
+                    attributes: ['id', 'username', avatarURLCol("sender", `${req.protocol}://${req.headers.host}/`)]
+                }
+            ]
+        }))[0];
+        chat.setDataValue("lastMessage", lastMessage);
         return res.status(200).json(chat);
     } else {
         return res.status(404).send("No chat with such id");
@@ -174,14 +230,33 @@ export async function getChats(req, res) {
         offset: offset || 0
     });
     if (chats) {
+        for(let chat of chats){
+            const lastMessage = (await chat.getMessages({
+                limit: 1,
+                order: [["createdAt", "DESC"]],
+                include: [
+                    {
+                        model: MessageMedia,
+                        as: "medias",
+                        attributes: ['id', [sequelize.fn('CONCAT', `${req.protocol}://${req.headers.host}/`, sequelize.col('mediaPath')), 'mediaURL']]
+                    },
+                    {
+                        model: User,
+                        as: "sender",
+                        attributes: ['id', 'username', avatarURLCol("sender", `${req.protocol}://${req.headers.host}/`)]
+                    }
+                ]
+            }))[0];
+            chat.setDataValue("lastMessage", lastMessage);
+        }
         return res.status(200).json(chats);
     } else {
         return res.status(204).send();
     }
 }
 
-export function chatSocketFunctions(io, socket) {
-    if(socket.request.session.userId){
+export function chatSocketFunctions(socket) {
+    if (socket.request.session.userId) {
         socket.join(`user_${socket.request.session.userId}`);
     }
 
@@ -197,7 +272,7 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("add_user_to_chat", async (userId, chatId) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -227,7 +302,7 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("remove_user_from_chat", async (userId, chatId) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -252,17 +327,16 @@ export function chatSocketFunctions(io, socket) {
         }
         await chat.removeMember(user);
         io.to(`chat_${chatId}`).emit("removed_member", user);
-        socket.emit("removed_from_chat", chatId);
     });
 
     socket.on("update_chat_name", async (chatId, name) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
 
-        if(!name || name.trim === ""){
+        if (!name || name.trim === "") {
             socket.emit("no_chat_name");
             return;
         }
@@ -274,34 +348,31 @@ export function chatSocketFunctions(io, socket) {
             return;
         }
 
-        await chat.update({name: name});
+        await chat.update({ name: name });
         io.to(`chat_${chatId}`).emit("updated_chat")
     });
 
     socket.on("update_chat_avatar", async (chatId, avatar, cropParams) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
-            console.log("not_authenticated");
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
 
         const chat = await Chat.findByPk(chatId);
-        if(!chat){
-            console.log("no_chat");
+        if (!chat) {
             socket.emit("no_chat");
             return;
         }
 
-        if(!avatar){
-            console.log("no_avatar");
+        if (!avatar) {
             socket.emit("no_avatar");
             return;
         }
 
-        const {cropX, cropY, cropWidth, cropHeight} = cropParams;
+        const { cropX, cropY, cropWidth, cropHeight } = cropParams;
 
-        if(!fs.existsSync(path.join(groupChatsPath, `chat_${chatId}`))){
+        if (!fs.existsSync(path.join(groupChatsPath, `chat_${chatId}`))) {
             fs.mkdirSync(path.join(groupChatsPath, `chat_${chatId}`));
         }
 
@@ -315,25 +386,25 @@ export function chatSocketFunctions(io, socket) {
         }
         const ext = path.extname(avatar.name);
         let avatarPath = path.join(groupChatsPath, `chat_${chatId}`, `avatar${ext}`);
-        if(cropX){
-            await sharp(avatar.data, {animated: true}).extract({
-                left: parseInt(cropX), 
-                top: parseInt(cropY), 
-                width: parseInt(cropWidth), 
+        if (cropX) {
+            await sharp(avatar.data, { animated: true }).extract({
+                left: parseInt(cropX),
+                top: parseInt(cropY),
+                width: parseInt(cropWidth),
                 height: parseInt(cropHeight)
             }).toFile(avatarPath);
-        }else{
+        } else {
             await sharp(avatar.data).toFile(avatarPath);
         }
-        
+
         let newAvatarPath = slash(path.relative(serverPath, avatarPath));
-        await chat.update({avatarPath: newAvatarPath});
+        await chat.update({ avatarPath: newAvatarPath });
         io.to(`chat_${chatId}`).emit("updated_chat");
     });
 
     socket.on("join_chat", async (chatId) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -358,7 +429,7 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("leave_chat", async (chatId) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -366,7 +437,7 @@ export function chatSocketFunctions(io, socket) {
         const currentUser = await User.findByPk(currentUserId);
 
         const chat = await Chat.findByPk(chatId);
-        if(!chat){
+        if (!chat) {
             socket.emit("no_chat");
             return;
         }
@@ -378,19 +449,19 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("delete_chat", async (chatId) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
 
         const chat = await Chat.findByPk(chatId);
-        if(!chat){
+        if (!chat) {
             socket.emit("no_chat");
             return;
         }
 
         const user = await User.findByPk(chat.creatorId);
-        if(!user){
+        if (!user) {
             socket.emit("no_permission");
             return;
         }
@@ -401,7 +472,7 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("send_message", async (chatId, content, files) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -414,7 +485,7 @@ export function chatSocketFunctions(io, socket) {
             return;
         }
 
-        if(content.trim() === "" && (!files || files.length === 0)){
+        if (content.trim() === "" && (!files || files.length === 0)) {
             socket.emit("empty_message");
             return;
         }
@@ -434,7 +505,7 @@ export function chatSocketFunctions(io, socket) {
 
                 for (const [index, file] of files.entries()) {
                     const ext = path.extname(file.name);
-                    
+
                     const filepath = path.join(messagePath, `message_media_${index}${ext}`);
                     fs.writeFileSync(filepath, file.data);
                     await message.createMedia({ mediaPath: slash(path.relative(serverPath, filepath)) });
@@ -474,7 +545,7 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("set_message_reaction", async (messageId, reactionStr) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -508,25 +579,25 @@ export function chatSocketFunctions(io, socket) {
         io.to(`chat_${message.chatId}`).emit("update_reactions", messageId, reactions);
     });
 
-    socket.on("update_message", async (messageId, content, files) => {
+    socket.on("edit_message", async (messageId, content, files) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
-        
+
         const message = await Message.findByPk(messageId);
         if (!message) {
             socket.emit("no_message");
             return;
         }
 
-        if(message.senderId !== currentUserId && socket.request.session.userRole !== "admin"){
+        if (message.senderId !== currentUserId && socket.request.session.userRole !== "admin") {
             socket.emit("no_permission");
             return;
         }
 
-        if(content.trim() === "" && (!files || files.length === 0)){
+        if (content.trim() === "" && (!files || files.length === 0)) {
             socket.emit("empty_message");
             return;
         }
@@ -561,8 +632,9 @@ export function chatSocketFunctions(io, socket) {
                         }
                         console.log(`deleted ${oldFilepath}`);
                     });
+                    await medias[i].destroy();
                 }
-            }else if(files.length >= medias.length){
+            } else if (files.length >= medias.length) {
                 let i = 0;
                 for (; i < medias.length; ++i) {
                     const ext = path.extname(files[i].name);
@@ -580,7 +652,11 @@ export function chatSocketFunctions(io, socket) {
                 }
             }
         }
-        await message.update({content: content});
+        message.changed("updatedAt", true);
+        if(content  && content !== ""){
+            message.set("content", content);
+        }
+        await message.save();
         const medias = await message.getMedias();
         if (medias) {
             const mediasToReturn = medias.map((media) => {
@@ -596,7 +672,7 @@ export function chatSocketFunctions(io, socket) {
 
     socket.on("delete_message", async (messageId) => {
         const currentUserId = socket.request.session.userId;
-        if(!currentUserId){
+        if (!currentUserId) {
             socket.emit("not_authenticated");
             return;
         }
@@ -608,13 +684,32 @@ export function chatSocketFunctions(io, socket) {
             return;
         }
 
-        if(message.senderId !== currentUserId && socket.request.session.userRole !== "admin"){
+        if (message.senderId !== currentUserId && socket.request.session.userRole !== "admin") {
             socket.emit("no_permission");
             return;
         }
 
         const chatId = message.chatId;
         await message.destroy();
-        io.to(`chat_${chatId}`).emit("message_deleted", messageId);
+
+        const prevMessage = await Message.findOne({
+            where: {
+                chatId: chatId
+            },
+            order: [["createdAt", "DESC"]],
+            include: [
+                {
+                    model: MessageMedia,
+                    as: "medias",
+                    attributes: ['id', [sequelize.fn('CONCAT', `${process.env.ENVIRONMENT === "production" ? "https" : "http"}://${socket.handshake.headers.host}/`, sequelize.col('mediaPath')), 'mediaURL']]
+                },
+                {
+                    model: User,
+                    as: "sender",
+                    attributes: ['id', 'username', avatarURLCol("sender", `${process.env.ENVIRONMENT === "production" ? "https" : "http"}://${socket.handshake.headers.host}/`)]
+                }
+            ]
+        });
+        io.to(`chat_${chatId}`).emit("message_deleted", messageId, prevMessage);
     });
 }

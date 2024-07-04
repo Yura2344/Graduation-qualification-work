@@ -1,6 +1,6 @@
 import express from "express";
 import verifySession from "../utils/verifySession.js";
-import { createGroupChat, createPersonalChat, getChat, getChatMessages, getChats } from "../controllers/ChatController.js";
+import { createGroupChat, createPersonalChat, getChat, getChatMessages, getChats, getPersonalChatByUsername } from "../controllers/ChatController.js";
 import { body, param } from "express-validator";
 
 const chatRouter = express.Router({mergeParams: true});
@@ -21,6 +21,15 @@ chatRouter.post(
         body("name").trim().notEmpty().isAscii().isLength({ min: 5, max: 20 })
     ],
     createGroupChat
+);
+
+chatRouter.get(
+    "/personal/:username",
+    [
+        verifySession,
+        param("username").trim().notEmpty().isLength({min: 5, max: 20})
+    ],
+    getPersonalChatByUsername
 );
 
 chatRouter.get(

@@ -133,7 +133,11 @@ export async function editPost(req, res) {
             }
 
         }
-        await post.update({ content: content });
+        post.changed("updatedAt", true);
+        if(content && content !== ""){
+            post.set("content", content);
+        }
+        await post.save();
         if (type === "advertisement") {
             const oldAdvertisement = await post.getAdvertisementData();
             if (oldAdvertisement) {
@@ -172,7 +176,6 @@ export async function getPostById(req, res) {
     });
 
     if (post) {
-        post.setDataValue("creator", creatorData);
         post.setDataValue("reactions", countReactions(await post.getReactions()));
         post.setDataValue("commentsCount", await Comment.count({
             where: {
@@ -284,7 +287,6 @@ export async function getPosts(req, res) {
             
             posts = posts.filter((post) => {
                 let currentCurrency = post.advertisementData.currency.toUpperCase();
-                console.log(currentCurrency);
                 let fromTo = currenciesFromTo[currentCurrency];
                 return parseFloat(post.advertisementData.cost) >= parseFloat(fromTo.from) && parseFloat(post.advertisementData.cost) <= parseFloat(fromTo.to);
             });

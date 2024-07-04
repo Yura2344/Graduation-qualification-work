@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { Box, Button, Card, CardContent, Typography } from "@mui/material";
-import { useParams } from "react-router";
+import { useNavigate, useParams } from "react-router";
 import { Link } from "react-router-dom";
 
 import { axiosInstance } from "../axios";
 import { useUserContext } from "../components/user/UserContext";
 import Post from "../components/post/Post";
+import { socket } from "../socket";
 
 export default function User() {
   const { username } = useParams();
+
+  const navigate = useNavigate();
 
   const { user, userLoading } = useUserContext();
   const [sameUser, setSameUser] = useState();
@@ -39,7 +42,21 @@ export default function User() {
   }, [username]);
 
   function writeMessage(){
-
+    axiosInstance.get(`/chats/personal/${username}`).then((res) => {
+      navigate(`/chats/${res.data.id}`);
+    }).catch((err) => {
+      if(err.response.status === 404){
+        let params = new URLSearchParams();
+        params.append("username", username);
+        
+        axiosInstance.post(`/chats/personal`, params).then((res) => {
+          socket.emit("connect_to_chat", res.data.chatId);
+          navigate(`/chats/${res.data.chatId}`)
+        }).catch((err) => {
+          console.log(err);
+        });
+      }
+    });
   }
 
   const getFollowingFollowersCount = useCallback(() => {
@@ -108,7 +125,7 @@ export default function User() {
                       ]
                     }
                     {
-                      sameUser && <Link to={`/users/${username}/edit`}>
+                      (sameUser || user.role === "admin") && <Link to={`/users/${username}/edit`}>
                         <Button key="edit-profile" variant="outlined" >Edit profile</Button>
                       </Link>
                     }

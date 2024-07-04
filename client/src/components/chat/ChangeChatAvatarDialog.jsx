@@ -62,7 +62,6 @@ export default function ChangeChatAvatarDialog({open, setIsOpen, chatId}){
       cropWidth: scale * crop.width, 
       cropHeight: scale * crop.height
     };
-    console.log(fileToSend);
     socket.emit("update_chat_avatar", chatId, fileToSend, cropParams);
     setIsOpen(false);
   }
